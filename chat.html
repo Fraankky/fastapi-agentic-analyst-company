@@ -1,0 +1,87 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; max-width: 640px; margin: 40px auto; padding: 0 16px; }
+    h1 { font-size: 1.2rem; margin-bottom: 16px; }
+    label { display: block; font-size: 0.85rem; margin-bottom: 4px; }
+    input, button { font-family: monospace; font-size: 0.9rem; }
+    input { width: 100%; padding: 6px 8px; border: 1px solid #999; margin-bottom: 12px; }
+    button { padding: 6px 16px; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #response { margin-top: 16px; padding: 12px; min-height: 120px; border: 1px solid #ccc; background: #f9f9f9; white-space: pre-wrap; word-wrap: break-word; font-size: 0.85rem; }
+    .tool-call { color: #888; font-style: italic; }
+  </style>
+</head>
+<body>
+  <h1>Analisis Perusahan</h1>
+
+  <label for="session_id">Session ID</label>
+  <input type="text" id="session_id" placeholder="e.g. session-1">
+
+  <label for="message">Message</label>
+  <input type="text" id="message" placeholder="example: Analisis APPL pada q1 2026..">
+
+  <button type="button" id="send">Send</button>
+
+  <div id="response"></div>
+
+  <script>
+    const btn = document.getElementById("send");
+
+    btn.addEventListener("click", async () => {
+      const sessionId = document.getElementById("session_id").value.trim();
+      const message = document.getElementById("message").value.trim();
+      if (!sessionId || !message) return alert("Both fields are required.");
+
+      const responseDiv = document.getElementById("response");
+      responseDiv.textContent = "";
+      btn.disabled = true;
+
+      try {
+        const res = await fetch("http://localhost:8000/chat/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId, message }),
+        });
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const json = JSON.parse(line.slice(6).trim());
+
+            if (json.type === "text_delta") {
+              responseDiv.textContent += json.delta;
+           } else if (json.type === "tool_call") {
+              const el = document.createElement("span");
+              el.className = "tool-call";
+              el.textContent = `\n[🔧 ${json.tool_name}(${json.argument})]\n`;
+              responseDiv.appendChild(el);
+            }
+          }
+        }
+      } catch (err) {
+        responseDiv.textContent = "Error: " + err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
